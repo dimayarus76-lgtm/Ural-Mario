@@ -3,314 +3,264 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Урал Марио — АвтоБизнес Runner</title>
+    <title>Урал Марио - Автопром Марио</title>
     <style>
-        body {
-            margin: 0;
-            padding: 0;
-            background: #0a0a0a;
-            font-family: 'Arial', sans-serif;
-            color: #fff;
-            overflow: hidden;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
+        body { margin:0; overflow:hidden; background:#0a0a0a; font-family:Arial; }
+        canvas { display:block; margin:0 auto; image-rendering:pixelated; }
+        #ui {
+            position: absolute; top: 10px; left: 10px; color: white; font-size: 20px; z-index: 100;
+            text-shadow: 2px 2px 4px black;
         }
-        canvas {
-            image-rendering: pixelated;
-            border: 4px solid #ff6600;
-            margin-top: 20px;
-            box-shadow: 0 0 30px rgba(255, 102, 0, 0.6);
-        }
-        .header {
-            background: linear-gradient(#1a1a1a, #0a0a0a);
-            width: 100%;
-            text-align: center;
-            padding: 15px;
-            border-bottom: 3px solid #ff6600;
-        }
-        h1 {
-            margin: 0;
-            font-size: 2.5em;
-            color: #ffcc00;
-            text-shadow: 0 0 10px #ff6600;
-        }
-        .controls {
-            margin: 10px;
-            text-align: center;
-            font-size: 1.1em;
-        }
-        .score {
-            position: absolute;
-            top: 80px;
-            left: 30px;
-            font-size: 1.4em;
-            font-weight: bold;
-            color: #00ff88;
-            text-shadow: 2px 2px 4px #000;
+        #game-over, #win {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.9); color: white; padding: 30px; border-radius: 15px;
+            text-align: center; display: none; z-index: 200;
         }
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>🚚 УРАЛ МАРИО</h1>
-        <p style="margin:5px;color:#aaa;">Автопромышленный раннер</p>
+    <div id="ui">Счёт: <span id="score">0</span> | Монеты: <span id="coins">0</span></div>
+    <canvas id="game" width="1200" height="600"></canvas>
+
+    <div id="game-over">
+        <h1>💥 Катастрофа на дороге!</h1>
+        <p>Счёт: <span id="final-score">0</span></p>
+        <button onclick="restart()">Начать заново</button>
     </div>
 
-    <canvas id="game" width="800" height="400"></canvas>
-
-    <div class="controls">
-        ← → — Бежать &nbsp;&nbsp; Пробел — Прыгать &nbsp;&nbsp; R — Перезапустить
+    <div id="win">
+        <h1>🏁 Уровень пройден!</h1>
+        <p>Отличная работа, директор!</p>
+        <button onclick="restart()">Играть снова</button>
     </div>
 
     <script>
         const canvas = document.getElementById('game');
         const ctx = canvas.getContext('2d');
-
-        // Game variables
         let score = 0;
-        let gameOver = false;
-        let gameStarted = false;
+        let coins = 0;
 
-        // Player (Лысый чувак в костюме)
+        // Игрок - лысый бизнесмен
         let player = {
             x: 100,
-            y: 280,
-            width: 40,
-            height: 50,
-            velocityY: 0,
-            jumping: false,
-            speed: 5
+            y: 400,
+            width: 50,
+            height: 60,
+            velX: 0,
+            velY: 0,
+            speed: 5,
+            jump: -15,
+            grounded: false
         };
 
-        // Gravity and physics
-        const gravity = 0.8;
-        const jumpPower = -18;
-
-        // Obstacles (Уралы)
-        let obstacles = [];
-        let frameCount = 0;
-
-        // Background elements
-        let bgX = 0;
-
-        // Keys
         let keys = {};
+        let gravity = 0.8;
+        let scrollX = 0;
 
-        document.addEventListener('keydown', e => {
-            keys[e.key] = true;
-            if (e.key === ' ' && !player.jumping && gameStarted) {
-                player.velocityY = jumpPower;
-                player.jumping = true;
-            }
-            if (e.key.toLowerCase() === 'r' && gameOver) {
-                resetGame();
-            }
-        });
+        // Платформы и земля
+        let platforms = [
+            {x:0, y:500, w:2000, h:100}, // ground
+            {x:400, y:380, w:200, h:20},
+            {x:700, y:280, w:180, h:20},
+            {x:1000, y:420, w:150, h:20},
+            {x:1300, y:320, w:220, h:20},
+            {x:1700, y:250, w:180, h:20},
+            {x:2100, y:400, w:300, h:20},
+        ];
 
-        document.addEventListener('keyup', e => {
-            keys[e.key] = false;
-        });
+        // Монеты
+        let coinList = [
+            {x:450, y:300, collected:false},
+            {x:750, y:200, collected:false},
+            {x:1050, y:340, collected:false},
+            {x:1350, y:240, collected:false},
+            {x:1750, y:180, collected:false},
+            {x:2200, y:320, collected:false},
+        ];
+
+        // Враги - Уралы
+        let enemies = [
+            {x:600, y:440, velX: -2, width:70, height:50},
+            {x:1100, y:440, velX: -3, width:70, height:50},
+            {x:1600, y:440, velX: -2.5, width:70, height:50},
+            {x:2000, y:440, velX: -3, width:70, height:50},
+        ];
+
+        let gameOver = false;
+        let win = false;
+
+        // Управление
+        window.addEventListener('keydown', e => keys[e.key] = true);
+        window.addEventListener('keyup', e => keys[e.key] = false);
 
         function drawBackground() {
-            // Sky
-            ctx.fillStyle = '#1a2a44';
+            ctx.fillStyle = '#1a3c2e';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            // Ground
-            ctx.fillStyle = '#3a2a1a';
-            ctx.fillRect(0, 330, canvas.width, canvas.height - 330);
+            // Небо с заводами
+            ctx.fillStyle = '#0f2a1f';
+            ctx.fillRect(0, 0, canvas.width, 350);
 
-            // Road lines
-            ctx.strokeStyle = '#ffcc00';
-            ctx.lineWidth = 4;
-            for (let i = -2; i < 10; i++) {
-                let x = (bgX + i * 120) % (canvas.width + 200) - 100;
-                ctx.beginPath();
-                ctx.moveTo(x, 350);
-                ctx.lineTo(x + 80, 350);
-                ctx.stroke();
+            // Дым из труб
+            ctx.fillStyle = 'rgba(200,200,200,0.4)';
+            for(let i=0; i<8; i++) {
+                let px = (i*280 - scrollX*0.3) % 1400;
+                ctx.fillRect(px, 80 + Math.sin(i)*20, 60, 120);
             }
 
-            // Factory background
-            ctx.fillStyle = '#555';
-            ctx.fillRect(50, 180, 120, 150);
-            ctx.fillRect(300, 140, 150, 190);
-        }
+            // Дорога
+            ctx.fillStyle = '#333';
+            ctx.fillRect(0, 480, canvas.width, 120);
 
-        function drawPlayer() {
-            // Bald guy body
-            ctx.fillStyle = '#ffddaa';
-            ctx.fillRect(player.x + 8, player.y + 5, 24, 25); // head
-
-            // Bald shine
-            ctx.fillStyle = '#ffeecc';
-            ctx.fillRect(player.x + 12, player.y + 10, 8, 8);
-
-            // Suit
-            ctx.fillStyle = '#1a3a8a';
-            ctx.fillRect(player.x + 5, player.y + 28, 30, 22);
-
-            // Legs
-            ctx.fillStyle = '#222';
-            ctx.fillRect(player.x + 10, player.y + 48, 8, 12);
-            ctx.fillRect(player.x + 22, player.y + 48, 8, 12);
-
-            // Arms
-            ctx.fillStyle = '#ffddaa';
-            ctx.fillRect(player.x + 2, player.y + 32, 8, 15);
-            ctx.fillRect(player.x + 30, player.y + 32, 8, 15);
-        }
-
-        function drawObstacle(obs) {
-            // Ural truck
-            ctx.fillStyle = '#334455';
-            ctx.fillRect(obs.x, obs.y, 70, 45); // body
-
-            ctx.fillStyle = '#1a2533';
-            ctx.fillRect(obs.x + 5, obs.y + 8, 55, 20); // cabin
-
-            // Wheels
-            ctx.fillStyle = '#111';
-            ctx.beginPath();
-            ctx.arc(obs.x + 15, obs.y + 48, 10, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.beginPath();
-            ctx.arc(obs.x + 50, obs.y + 48, 10, 0, Math.PI * 2);
-            ctx.fill();
-
-            ctx.fillStyle = '#ff2222';
-            ctx.fillRect(obs.x + 55, obs.y + 15, 12, 12); // lights
+            // Разметка
+            ctx.strokeStyle = '#ff0';
+            ctx.lineWidth = 6;
+            for(let i=0; i<15; i++) {
+                let px = (i*120 - (scrollX*0.8 % 120));
+                ctx.beginPath();
+                ctx.moveTo(px, 520);
+                ctx.lineTo(px+60, 520);
+                ctx.stroke();
+            }
         }
 
         function update() {
-            if (!gameStarted || gameOver) return;
+            if (gameOver || win) return;
 
-            frameCount++;
+            // Движение игрока
+            player.velX = 0;
+            if (keys['ArrowLeft'] || keys['a']) player.velX = -player.speed;
+            if (keys['ArrowRight'] || keys['d']) player.velX = player.speed;
 
-            // Player movement
-            if (keys['ArrowLeft'] || keys['a']) {
-                player.x -= player.speed;
-            }
-            if (keys['ArrowRight'] || keys['d']) {
-                player.x += player.speed;
-            }
-
-            // Boundaries
-            if (player.x < 20) player.x = 20;
-            if (player.x > canvas.width - player.width - 20) player.x = canvas.width - player.width - 20;
-
-            // Gravity
-            player.velocityY += gravity;
-            player.y += player.velocityY;
-
-            // Ground collision
-            if (player.y >= 280) {
-                player.y = 280;
-                player.velocityY = 0;
-                player.jumping = false;
+            if ((keys[' '] || keys['ArrowUp'] || keys['w']) && player.grounded) {
+                player.velY = player.jump;
+                player.grounded = false;
             }
 
-            // Spawn obstacles
-            if (frameCount % 75 === 0) {
-                obstacles.push({
-                    x: canvas.width + 50,
-                    y: 280,
-                    width: 70,
-                    height: 50
-                });
-            }
+            player.velY += gravity;
+            player.x += player.velX;
+            player.y += player.velY;
 
-            // Update obstacles
-            for (let i = 0; i < obstacles.length; i++) {
-                let obs = obstacles[i];
-                obs.x -= 4;
-
-                // Collision
-                if (
-                    player.x < obs.x + obs.width &&
-                    player.x + player.width > obs.x &&
-                    player.y < obs.y + obs.height &&
-                    player.y + player.height > obs.y
-                ) {
-                    gameOver = true;
-                }
-
-                if (obs.x < -100) {
-                    obstacles.splice(i, 1);
-                    score += 10;
-                    i--;
+            // Гравитация и платформы
+            player.grounded = false;
+            for (let p of platforms) {
+                if (player.x < p.x + p.w && player.x + player.width > p.x &&
+                    player.y < p.y + p.h && player.y + player.height > p.y) {
+                    if (player.velY > 0 && player.y < p.y) {
+                        player.y = p.y - player.height;
+                        player.velY = 0;
+                        player.grounded = true;
+                    }
                 }
             }
 
-            // Background scroll
-            bgX -= 2;
-            if (bgX <= -200) bgX = 0;
+            // Падение в яму
+            if (player.y > 650) {
+                gameOver = true;
+                document.getElementById('game-over').style.display = 'block';
+            }
 
-            score += 0.2;
+            // Камера
+            if (player.x - scrollX > 600) scrollX = player.x - 600;
+
+            // Монеты
+            for (let c of coinList) {
+                if (!c.collected && Math.abs(player.x - c.x) < 40 && Math.abs(player.y - c.y) < 50) {
+                    c.collected = true;
+                    coins++;
+                    score += 100;
+                    document.getElementById('coins').textContent = coins;
+                    document.getElementById('score').textContent = score;
+                }
+            }
+
+            // Враги
+            for (let e of enemies) {
+                e.x += e.velX;
+
+                // Столкновение с игроком
+                if (Math.abs(player.x - e.x) < 50 && Math.abs(player.y - e.y) < 50) {
+                    if (player.velY > 0 && player.y < e.y) {
+                        // Убить врага прыжком сверху
+                        enemies.splice(enemies.indexOf(e), 1);
+                        score += 300;
+                        player.velY = -12;
+                    } else {
+                        gameOver = true;
+                        document.getElementById('game-over').style.display = 'block';
+                    }
+                }
+
+                // Отскок от краёв
+                if (e.x < 200 || e.x > 2400) e.velX *= -1;
+            }
+
+            // Победа
+            if (player.x > 2450) {
+                win = true;
+                document.getElementById('win').style.display = 'block';
+            }
         }
 
         function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
             drawBackground();
-            drawPlayer();
 
-            obstacles.forEach(obs => drawObstacle(obs));
-
-            // Score
-            ctx.fillStyle = '#00ff88';
-            ctx.font = 'bold 28px Arial';
-            ctx.fillText('Счёт: ' + Math.floor(score), 30, 60);
-
-            if (!gameStarted) {
-                ctx.fillStyle = 'rgba(0,0,0,0.7)';
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-                ctx.fillStyle = '#ffcc00';
-                ctx.font = 'bold 42px Arial';
-                ctx.textAlign = 'center';
-                ctx.fillText('НАЖМИ ПРОБЕЛ', canvas.width/2, 180);
-                ctx.font = '22px Arial';
-                ctx.fillText('чтобы начать зарабатывать на Уралах', canvas.width/2, 230);
+            // Платформы
+            ctx.fillStyle = '#555';
+            for (let p of platforms) {
+                ctx.fillRect(p.x - scrollX, p.y, p.w, p.h);
             }
 
-            if (gameOver) {
-                ctx.fillStyle = 'rgba(0,0,0,0.85)';
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-                ctx.fillStyle = '#ff4444';
-                ctx.font = 'bold 50px Arial';
-                ctx.textAlign = 'center';
-                ctx.fillText('КРАШ!', canvas.width/2, 160);
-                ctx.fillStyle = '#fff';
-                ctx.font = '28px Arial';
-                ctx.fillText('Финальный счёт: ' + Math.floor(score), canvas.width/2, 220);
-                ctx.fillStyle = '#ffcc00';
-                ctx.font = '22px Arial';
-                ctx.fillText('Нажми R для рестарта', canvas.width/2, 270);
+            // Монеты
+            ctx.fillStyle = '#ff0';
+            for (let c of coinList) {
+                if (!c.collected) {
+                    ctx.beginPath();
+                    ctx.arc(c.x - scrollX, c.y, 18, 0, Math.PI*2);
+                    ctx.fill();
+                    ctx.fillStyle = '#fc0';
+                    ctx.font = 'bold 18px Arial';
+                    ctx.fillText('₽', c.x - scrollX - 8, c.y + 7);
+                }
             }
+
+            // Игрок (лысый чувак)
+            ctx.fillStyle = '#f4a261';
+            ctx.fillRect(player.x - scrollX, player.y, player.width, player.height); // тело
+            ctx.fillStyle = '#222';
+            ctx.fillRect(player.x - scrollX + 10, player.y + 10, 30, 25); // костюм
+            ctx.fillStyle = '#f8d'; // голова
+            ctx.beginPath();
+            ctx.arc(player.x - scrollX + 25, player.y + 18, 14, 0, Math.PI*2);
+            ctx.fill();
+
+            // Враги Урал
+            ctx.fillStyle = '#c00';
+            for (let e of enemies) {
+                ctx.fillRect(e.x - scrollX, e.y, e.width, e.height);
+                ctx.fillStyle = '#222';
+                ctx.fillRect(e.x - scrollX + 10, e.y + 10, 50, 25);
+                ctx.fillStyle = '#c00';
+            }
+
+            // Текст
+            ctx.fillStyle = 'white';
+            ctx.font = '20px Arial';
+            ctx.fillText('🏭 УРАЛ МАРИО', 20, 40);
         }
 
-        function gameLoop() {
+        function loop() {
             update();
             draw();
-            requestAnimationFrame(gameLoop);
+            requestAnimationFrame(loop);
         }
 
-        function resetGame() {
-            player.x = 100;
-            player.y = 280;
-            player.velocityY = 0;
-            obstacles = [];
-            score = 0;
-            frameCount = 0;
-            gameOver = false;
+        function restart() {
+            location.reload();
         }
 
-        // Start the game
-        gameLoop();
-
-        // Click to start
-        canvas.addEventListener('click', () => {
-            if (!gameStarted) gameStarted = true;
-        });
+        loop();
     </script>
 </body>
 </html>
